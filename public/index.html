@@ -407,7 +407,15 @@ function title(){
 // ---------- ONLINE MULTIPLAYER (IN-CANVAS) ----------
 let netSocket = null, netPlayerIndex = 0, netGameActive = false, netRoom = null;
 let netMenuState = 'main'; // 'main' | 'room'
-let netRemoteState = { l:0, r:0, u:0, uh:0, dh:0, p:0, k:0, b:0, s:0, f:0 };
+let netRemoteStates = [
+  { l:0, r:0, u:0, uh:0, dh:0, p:0, k:0, b:0, s:0, f:0 },
+  { l:0, r:0, u:0, uh:0, dh:0, p:0, k:0, b:0, s:0, f:0 },
+  { l:0, r:0, u:0, uh:0, dh:0, p:0, k:0, b:0, s:0, f:0 },
+  { l:0, r:0, u:0, uh:0, dh:0, p:0, k:0, b:0, s:0, f:0 }
+];
+function resetNetRemoteStates() {
+  netRemoteStates = [0, 1, 2, 3].map(() => ({ l:0, r:0, u:0, uh:0, dh:0, p:0, k:0, b:0, s:0, f:0 }));
+}
 let netOutState = { l:0, r:0, u:0, uh:0, dh:0, p:0, k:0, b:0, s:0, f:0 };
 let netLastSend = 0, netLastInputStr = '';
 let netConnected = false, netConnecting = false, netStatusMsg = '';
@@ -497,46 +505,52 @@ function connectOnline() {
   netSocket.on('game-start', data => {
     netPlayerIndex = data.playerIndex;
     netGameActive = true;
-    netRemoteState = { l:0, r:0, u:0, uh:0, dh:0, p:0, k:0, b:0, s:0, f:0 };
+    resetNetRemoteStates();
     netOutState = { l:0, r:0, u:0, uh:0, dh:0, p:0, k:0, b:0, s:0, f:0 };
     netLastSend = 0;
     netLastInputStr = '';
-    const roster = Array.isArray(data.characters) ? data.characters.slice(0, 2) : [0, 0];
-    two = true;
-    slots = [0, 1, 2, 3].map(i => i < 2
+    const roster = Array.isArray(data.characters) ? data.characters : [0, 0];
+    const n = Math.min(4, Math.max(2, roster.length));
+    two = (n === 2);
+    slots = [0, 1, 2, 3].map(i => i < n
       ? ({ st: 'HMN', cur: roster[i], char: roster[i], lock: true, ent: i })
       : ({ st: 'OFF', cur: 0, char: 0, lock: false, ent: i })
     );
-    sel = roster.slice();
+    sel = roster.slice(0, n);
     mapI = Number.isInteger(data.mapIndex) ? data.mapIndex : 0;
     mapSel = mapI;
     sfx.ok();
     vsStart();
   });
   netSocket.on('player-input', data => {
-    if (netGameActive && data.playerIndex !== netPlayerIndex && data.input) {
+    const idx = data.playerIndex;
+    if (netGameActive && idx !== netPlayerIndex && idx >= 0 && idx < 4 && data.input) {
       const inp = data.input;
-      netRemoteState.l = inp.l ? 1 : 0;
-      netRemoteState.r = inp.r ? 1 : 0;
-      netRemoteState.b = inp.b ? 1 : 0;
-      netRemoteState.uh = inp.uh ? 1 : 0;
-      netRemoteState.dh = inp.dh ? 1 : 0;
-      if (inp.u) netRemoteState.u = 1;
-      if (inp.p) netRemoteState.p = 1;
-      if (inp.k) netRemoteState.k = 1;
-      if (inp.s) netRemoteState.s = 1;
-      if (inp.f) netRemoteState.f = 1;
+      const r = netRemoteStates[idx];
+      r.l = inp.l ? 1 : 0;
+      r.r = inp.r ? 1 : 0;
+      r.b = inp.b ? 1 : 0;
+      r.uh = inp.uh ? 1 : 0;
+      r.dh = inp.dh ? 1 : 0;
+      if (inp.u) r.u = 1;
+      if (inp.p) r.p = 1;
+      if (inp.k) r.k = 1;
+      if (inp.s) r.s = 1;
+      if (inp.f) r.f = 1;
     }
   });
   netSocket.on('state-sync', data => {
-    if (netGameActive && netPlayerIndex === 1) {
+    if (netGameActive && netPlayerIndex !== 0) {
       netApplyStateSync(data);
     }
   });
   netSocket.on('return-lobby', room => {
     netGameActive = false;
-    netRemoteState = { l:0, r:0, u:0, uh:0, dh:0, p:0, k:0, b:0, s:0, f:0 };
+    resetNetRemoteStates();
     netRoom = room;
+    if (room && Number.isInteger(room.playerIndex)) {
+      netPlayerIndex = room.playerIndex;
+    }
     st = 'online';
     netMenuState = 'room';
     setTrack('title');
@@ -672,7 +686,7 @@ function cycleStage(delta) {
 }
 
 function startOnlineGame() {
-  if (netSocket?.connected && netRoom && netPlayerIndex === 0 && netRoom.players.length === 2) {
+  if (netSocket?.connected && netRoom && netPlayerIndex === 0 && netRoom.players.length >= 2) {
     netSocket.emit('start-game', { code: netRoom.code });
     sfx.ok();
   }
@@ -720,24 +734,20 @@ function netSendInput(v) {
 
 function netSendStateSync() {
   if (!netGameActive || !netSocket?.connected || netPlayerIndex !== 0 || !F || F.length < 2) return;
-  const p0 = { x: Math.round(F[0].x), y: Math.round(F[0].y), vx: +F[0].vx.toFixed(2), vy: +F[0].vy.toFixed(2), hp: F[0].hp, sm: F[0].sm, at: F[0].at, stn: F[0].stun };
-  const p1 = { x: Math.round(F[1].x), y: Math.round(F[1].y), vx: +F[1].vx.toFixed(2), vy: +F[1].vy.toFixed(2), hp: F[1].hp, sm: F[1].sm, at: F[1].at, stn: F[1].stun };
-  netSocket.emit('state-sync', { p0, p1, fNum: fT });
+  const fighters = F.map(f => ({ x: Math.round(f.x), y: Math.round(f.y), vx: +f.vx.toFixed(2), vy: +f.vy.toFixed(2), hp: f.hp, sm: f.sm, at: f.at, stn: f.stun }));
+  netSocket.emit('state-sync', { fighters, fNum: fT });
 }
 
 function netApplyStateSync(data) {
-  if (!netGameActive || netPlayerIndex === 0 || !F || F.length < 2 || !data) return;
-  const { p0, p1 } = data;
-  if (p0 && F[0]) {
-    F[0].hp = p0.hp; F[0].sm = p0.sm;
-    if (Math.abs(F[0].x - p0.x) > 18) F[0].x = p0.x; else F[0].x += (p0.x - F[0].x) * 0.35;
-    if (Math.abs(F[0].y - p0.y) > 15) F[0].y = p0.y; else F[0].y += (p0.y - F[0].y) * 0.35;
-  }
-  if (p1 && F[1]) {
-    F[1].hp = p1.hp; F[1].sm = p1.sm;
-    if (Math.abs(F[1].x - p1.x) > 18) F[1].x = p1.x; else F[1].x += (p1.x - F[1].x) * 0.35;
-    if (Math.abs(F[1].y - p1.y) > 15) F[1].y = p1.y; else F[1].y += (p1.y - F[1].y) * 0.35;
-  }
+  if (!netGameActive || netPlayerIndex === 0 || !F || !data) return;
+  const list = data.fighters;
+  if (!Array.isArray(list)) return;
+  list.forEach((pf, i) => {
+    if (!pf || !F[i]) return;
+    F[i].hp = pf.hp; F[i].sm = pf.sm;
+    if (Math.abs(F[i].x - pf.x) > 18) F[i].x = pf.x; else F[i].x += (pf.x - F[i].x) * 0.35;
+    if (Math.abs(F[i].y - pf.y) > 15) F[i].y = pf.y; else F[i].y += (pf.y - F[i].y) * 0.35;
+  });
 }
 
 function onlineScreen() {
@@ -823,7 +833,7 @@ function drawOnlineMain(mc) {
       R(14, y, 2, 21, '#ffd23d');
       txt(l.hostName + '’S LOBBY', 22, y + 3, 5.2, '#fff3c4', 'left');
       const stgName = (l.mapIndex === 7 || l.mapIndex == null || !MAPS[l.mapIndex]) ? 'RANDOM STAGE' : MAPS[l.mapIndex].n;
-      txt('CODE: ' + l.code + '  •  ' + l.players + '/2 PLAYERS  •  ' + stgName, 22, y + 12, 4.2, '#9d8ec2', 'left');
+      txt('CODE: ' + l.code + '  •  ' + l.players + '/4 PLAYERS  •  ' + stgName, 22, y + 12, 4.2, '#9d8ec2', 'left');
 
       const joinHov = mpos && inb(mpos, 252, y + 3, 48, 15);
       bevel(252, y + 3, 48, 15, joinHov ? '#7dffa0' : '#5aeb8a', joinHov ? '#28ba5c' : '#1f9a4a');
@@ -847,124 +857,115 @@ function drawOnlineMain(mc) {
 }
 
 function drawOnlineRoom(mc) {
-  txt('LOBBY ROOM: ' + netRoom.code, 120, 6, 8, '#ffd23d', 'left');
-
-  const cpHov = mpos && inb(mpos, 238, 4, 72, 12);
-  bevel(238, 4, 72, 12, cpHov ? '#a88fff' : '#8b6bff', '#4a35b8');
-  txt(netCopied ? 'COPIED!' : 'COPY CODE', 274, 6, 4.8, '#fff');
-  if (mc && inb(mc, 238, 4, 72, 12)) copyLobbyCode();
-
-  const p0 = netRoom.players[0] || { name: 'Host', character: 0, ready: true };
-  const char0 = Number.isInteger(p0.character) ? p0.character : 0;
   const isP0Local = netPlayerIndex === 0;
+  const np = netRoom.players.length;
 
-  // Podium 1 (Host)
-  R(12, 19, 142, 114, '#0c061e');
-  R(13, 20, 140, 112, '#1c1042');
-  R(13, 20, 140, 13, '#7a1a1a');
-  txt('PLAYER 1 (HOST)', 83, 22, 5, '#ff9b9b');
-  txt(p0.name + (isP0Local ? ' (YOU)' : ''), 83, 35, 5.2, '#fff3c4');
+  // Header
+  txt('LOBBY: ' + netRoom.code, 10, 6, 7.5, '#ffd23d', 'left');
+  txt(np + '/4 PLAYERS', 160, 6, 5.5, '#3df2ff');
 
-  if (CH[char0]) {
-    drawFighter({ c: CH[char0], id: char0, x: 83, y: 92, face: 1, walk: (T >> 2) % 2 ? T : 0, at: 0, stun: 0, blk: 0 }, T, 1.25);
-    txt(CH[char0].n, 83, 98, 5.5, '#ffd23d');
-  }
+  const cpHov = mpos && inb(mpos, 238, 2, 72, 12);
+  bevel(238, 2, 72, 12, cpHov ? '#a88fff' : '#8b6bff', '#4a35b8');
+  txt(netCopied ? 'COPIED!' : 'COPY CODE', 274, 4, 4.5, '#fff');
+  if (mc && inb(mc, 238, 2, 72, 12)) copyLobbyCode();
 
-  if (isP0Local) {
-    const prevHov = mpos && inb(mpos, 18, 112, 38, 13);
-    bevel(18, 112, 38, 13, prevHov ? '#a88fff' : '#8b6bff', '#4a35b8');
-    txt('< PREV', 37, 114, 4.4, '#fff');
-    if (mc && inb(mc, 18, 112, 38, 13)) cycleLocalChar(-1);
+  // 4 podium cards: each 72px wide, 6px gap, starting at x=11
+  // x positions: 11, 89, 167, 245  (72+6=78 step, total=11+3*78+72=317 -> fits in 320)
+  const PW = 72, PH = 118, PG = 6;
+  const PX0 = 11, PY0 = 17;
+  const PCOL_HDR = ['#ff9b9b', '#9bc4ff', '#ffe07d', '#9dffc0'];
+  const PCOL_BAR = ['#7a1a1a', '#1a2a7a', '#6a5a00', '#0a4a26'];
+  const PCOL_TXT = ['P1 (HOST)', 'P2', 'P3', 'P4'];
+  const PFACE = [1, -1, 1, -1];
 
-    const nextHov = mpos && inb(mpos, 110, 112, 38, 13);
-    bevel(110, 112, 38, 13, nextHov ? '#a88fff' : '#8b6bff', '#4a35b8');
-    txt('NEXT >', 129, 114, 4.4, '#fff');
-    if (mc && inb(mc, 110, 112, 38, 13)) cycleLocalChar(1);
+  for (let i = 0; i < 4; i++) {
+    const px = PX0 + i * (PW + PG);
+    const cx = px + PW / 2;
+    const pdata = netRoom.players[i] || null;
+    const isLocal = netPlayerIndex === i;
+    const charId = pdata ? (Number.isInteger(pdata.character) ? pdata.character : 0) : 0;
 
-    if (prs.ArrowLeft || prs.KeyA) cycleLocalChar(-1);
-    if (prs.ArrowRight || prs.KeyD) cycleLocalChar(1);
-  } else {
-    txt('READY', 83, 115, 5, '#5aeb8a');
-  }
+    // Card background
+    R(px, PY0, PW, PH, '#0c061e');
+    R(px + 1, PY0 + 1, PW - 2, PH - 2, '#1c1042');
+    // Header bar color by player slot
+    R(px + 1, PY0 + 1, PW - 2, 11, PCOL_BAR[i]);
 
-  // Podium 2 (Guest)
-  const hasGuest = netRoom.players.length >= 2;
-  const p1 = hasGuest ? netRoom.players[1] : null;
-  const isP1Local = netPlayerIndex === 1;
-  const char1 = p1 ? (Number.isInteger(p1.character) ? p1.character : 0) : 0;
+    txt(PCOL_TXT[i], cx, PY0 + 3, 4.5, PCOL_HDR[i]);
 
-  R(166, 19, 142, 114, '#0c061e');
-  R(167, 20, 140, 112, '#1c1042');
-  R(167, 20, 140, 13, '#1a2a7a');
-  txt('PLAYER 2 (GUEST)', 237, 22, 5, '#9bc4ff');
+    if (pdata) {
+      txt(pdata.name.slice(0, 9) + (isLocal ? ' (YOU)' : ''), cx, PY0 + 16, 4.2, '#fff3c4');
+      if (CH[charId]) {
+        const previewY = PY0 + 70;
+        drawFighter({ c: CH[charId], id: charId, x: cx, y: previewY, face: PFACE[i], walk: (T >> 2) % 2 ? T : 0, at: 0, stun: 0, blk: 0 }, T, 1.0);
+        txt(CH[charId].n, cx, PY0 + 80, 4.5, '#ffd23d');
+      }
+      if (isLocal) {
+        const prevHov = mpos && inb(mpos, px + 2, PY0 + 93, 28, 11);
+        bevel(px + 2, PY0 + 93, 28, 11, prevHov ? '#a88fff' : '#8b6bff', '#4a35b8');
+        txt('< ', px + 16, PY0 + 95, 4.2, '#fff');
+        if (mc && inb(mc, px + 2, PY0 + 93, 28, 11)) cycleLocalChar(-1);
 
-  if (hasGuest && p1) {
-    txt(p1.name + (isP1Local ? ' (YOU)' : ''), 237, 35, 5.2, '#fff3c4');
-    if (CH[char1]) {
-      drawFighter({ c: CH[char1], id: char1, x: 237, y: 92, face: -1, walk: (T >> 2) % 2 ? T : 0, at: 0, stun: 0, blk: 0 }, T, 1.25);
-      txt(CH[char1].n, 237, 98, 5.5, '#ffd23d');
-    }
+        const nextHov = mpos && inb(mpos, px + PW - 30, PY0 + 93, 28, 11);
+        bevel(px + PW - 30, PY0 + 93, 28, 11, nextHov ? '#a88fff' : '#8b6bff', '#4a35b8');
+        txt(' >', px + PW - 16, PY0 + 95, 4.2, '#fff');
+        if (mc && inb(mc, px + PW - 30, PY0 + 93, 28, 11)) cycleLocalChar(1);
 
-    if (isP1Local) {
-      const prevHov2 = mpos && inb(mpos, 172, 112, 38, 13);
-      bevel(172, 112, 38, 13, prevHov2 ? '#a88fff' : '#8b6bff', '#4a35b8');
-      txt('< PREV', 191, 114, 4.4, '#fff');
-      if (mc && inb(mc, 172, 112, 38, 13)) cycleLocalChar(-1);
-
-      const nextHov2 = mpos && inb(mpos, 264, 112, 38, 13);
-      bevel(264, 112, 38, 13, nextHov2 ? '#a88fff' : '#8b6bff', '#4a35b8');
-      txt('NEXT >', 283, 114, 4.4, '#fff');
-      if (mc && inb(mc, 264, 112, 38, 13)) cycleLocalChar(1);
-
-      if (prs.ArrowLeft || prs.KeyA) cycleLocalChar(-1);
-      if (prs.ArrowRight || prs.KeyD) cycleLocalChar(1);
+        if (prs.ArrowLeft || prs.KeyA) cycleLocalChar(-1);
+        if (prs.ArrowRight || prs.KeyD) cycleLocalChar(1);
+      } else {
+        txt('READY', cx, PY0 + 100, 4.5, '#5aeb8a');
+      }
     } else {
-      txt('READY', 237, 115, 5, '#5aeb8a');
+      // Empty slot
+      txt('OPEN', cx, PY0 + 42, 5, ((T >> 4) & 1) ? '#ffd23d' : '#c9bce9');
+      txt('WAITING…', cx, PY0 + 56, 4.2, '#7a6a9a');
+      if (i === 1 && np === 1) {
+        // Prompt to share code only in the first open slot
+        txt('SHARE CODE', cx, PY0 + 72, 4, '#3df2ff');
+        txt(netRoom.code, cx, PY0 + 83, 4.5, '#fff');
+      }
     }
-  } else {
-    txt('WAITING FOR OPPONENT…', 237, 56, 5.5, ((T >> 4) & 1) ? '#ffd23d' : '#fff3c4');
-    txt('SHARE CODE ' + netRoom.code, 237, 76, 5.2, '#3df2ff');
-    txt('WITH YOUR FRIEND TO JOIN', 237, 90, 4.4, '#c9bce9');
   }
 
   // Stage Selector Bar
-  R(12, 136, 296, 17, '#170c36');
+  R(11, PY0 + PH + 4, 298, 15, '#170c36');
   const curMap = Number.isInteger(netRoom.mapIndex) ? netRoom.mapIndex : 7;
   const stgName = (curMap === 7 || curMap >= MAPS.length) ? 'STAGE: RANDOM' : ('STAGE: ' + MAPS[curMap].n);
-  txt(stgName, 160, 140, 5.2, '#fff3c4');
+  txt(stgName, 160, PY0 + PH + 7, 5, '#fff3c4');
 
   if (isP0Local) {
-    const sPrevHov = mpos && inb(mpos, 16, 138, 30, 13);
-    bevel(16, 138, 30, 13, sPrevHov ? '#a88fff' : '#8b6bff', '#4a35b8');
-    txt('<', 31, 139, 5, '#fff');
-    if (mc && inb(mc, 16, 138, 30, 13)) cycleStage(-1);
+    const sPrevHov = mpos && inb(mpos, 15, PY0 + PH + 5, 24, 13);
+    bevel(15, PY0 + PH + 5, 24, 13, sPrevHov ? '#a88fff' : '#8b6bff', '#4a35b8');
+    txt('<', 27, PY0 + PH + 7, 5, '#fff');
+    if (mc && inb(mc, 15, PY0 + PH + 5, 24, 13)) cycleStage(-1);
 
-    const sNextHov = mpos && inb(mpos, 274, 138, 30, 13);
-    bevel(274, 138, 30, 13, sNextHov ? '#a88fff' : '#8b6bff', '#4a35b8');
-    txt('>', 289, 139, 5, '#fff');
-    if (mc && inb(mc, 274, 138, 30, 13)) cycleStage(1);
+    const sNextHov = mpos && inb(mpos, 275, PY0 + PH + 5, 24, 13);
+    bevel(275, PY0 + PH + 5, 24, 13, sNextHov ? '#a88fff' : '#8b6bff', '#4a35b8');
+    txt('>', 287, PY0 + PH + 7, 5, '#fff');
+    if (mc && inb(mc, 275, PY0 + PH + 5, 24, 13)) cycleStage(1);
   }
 
   // Bottom Actions
-  const leaveHov = mpos && inb(mpos, 12, 156, 58, 18);
-  bevel(12, 156, 58, 18, leaveHov ? '#ff8a8a' : '#ff6b6b', leaveHov ? '#b82a2a' : '#9a2020');
-  txt('LEAVE', 41, 159, 5.2, '#fff');
-  if (mc && inb(mc, 12, 156, 58, 18)) leaveOnlineLobby();
+  const leaveHov = mpos && inb(mpos, 11, 156, 56, 18);
+  bevel(11, 156, 56, 18, leaveHov ? '#ff8a8a' : '#ff6b6b', leaveHov ? '#b82a2a' : '#9a2020');
+  txt('LEAVE', 39, 159, 5, '#fff');
+  if (mc && inb(mc, 11, 156, 56, 18)) leaveOnlineLobby();
   if (prs.Escape) leaveOnlineLobby();
 
   if (isP0Local) {
-    if (hasGuest) {
-      const startHov = mpos && inb(mpos, 78, 156, 230, 18);
-      bevel(78, 156, 230, 18, startHov ? '#7dffa0' : '#5aeb8a', startHov ? '#28ba5c' : '#1f9a4a');
-      txt('START MATCH (ENTER)', 193, 159, 6, '#06210f');
-      if ((mc && inb(mc, 78, 156, 230, 18)) || prs.Enter || prs.Space) startOnlineGame();
+    if (np >= 2) {
+      const startHov = mpos && inb(mpos, 74, 156, 235, 18);
+      bevel(74, 156, 235, 18, startHov ? '#7dffa0' : '#5aeb8a', startHov ? '#28ba5c' : '#1f9a4a');
+      txt('START MATCH (' + np + ' PLAYERS)  ENTER', 191, 159, 5.5, '#06210f');
+      if ((mc && inb(mc, 74, 156, 235, 18)) || prs.Enter || prs.Space) startOnlineGame();
     } else {
-      bevel(78, 156, 230, 18, '#555', '#333');
-      txt('WAITING FOR PLAYER 2 TO JOIN…', 193, 159, 5, '#aaa');
+      bevel(74, 156, 235, 18, '#555', '#333');
+      txt('WAITING FOR PLAYERS… SHARE CODE ' + netRoom.code, 191, 159, 4.5, '#aaa');
     }
   } else {
-    bevel(78, 156, 230, 18, '#3df2ff', '#1a80b8');
-    txt('WAITING FOR HOST TO START MATCH…', 193, 159, 5, '#051f33');
+    bevel(74, 156, 235, 18, '#3df2ff', '#1a80b8');
+    txt('WAITING FOR HOST TO START…', 191, 159, 5, '#051f33');
   }
 }
 
@@ -1156,8 +1157,8 @@ function input(f,o){
    netSendInput(v);
    return v;
   }
-  const v={...netRemoteState};
-  netRemoteState.p=0;netRemoteState.k=0;netRemoteState.u=0;netRemoteState.s=0;netRemoteState.f=0;
+  const v={...netRemoteStates[f.pl]};
+  const _r=netRemoteStates[f.pl];_r.p=0;_r.k=0;_r.u=0;_r.s=0;_r.f=0;
   return v;
  }
  if(f.cpu){const L=DF[diff],d=o.x-f.x,ad=Math.abs(d);
