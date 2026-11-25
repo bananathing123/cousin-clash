@@ -485,8 +485,22 @@ function connectOnline(){
  netSocket.on('lobby-error',msg=>onlineMsg(msg,true));
  netSocket.on('lobby-closed',()=>{netGameActive=false;netRoom=null;onlineEl.classList.add('show');onlineShowHome();onlineMsg('The lobby was closed by the other player.',true);if(st==='fight')st='online'});
  netSocket.on('game-start',data=>{
-  netPlayerIndex=data.playerIndex;netGameActive=true;netRemoteState={l:0,r:0,u:0,p:0,k:0,b:0};
-  sel=data.characters.slice(0,2);two=true;mapI=data.mapIndex;mapSel=mapI;intro=120;go();
+  // Build the exact same two-human roster on BOTH clients before calling go().
+  // go() creates fighters from `slots` (not `sel`), so only setting `sel`
+  // caused each browser to reuse its default P1-vs-CPU setup and Zeke.
+  netPlayerIndex=data.playerIndex;
+  netGameActive=true;
+  netRemoteState={l:0,r:0,u:0,p:0,k:0,b:0};
+  netOutState={l:0,r:0,u:0,p:0,k:0,b:0};
+  netLastSend=0;
+  const roster=Array.isArray(data.characters)?data.characters.slice(0,2):[0,0];
+  two=true;
+  slots=[0,1,2,3].map(i=>i<2?({st:'HMN',cur:roster[i],char:roster[i],lock:true,ent:i}):({st:'OFF',cur:0,char:0,lock:false,ent:i}));
+  sel=roster.slice();
+  mapI=Number.isInteger(data.mapIndex)?data.mapIndex:0;
+  mapSel=mapI;
+  intro=120;
+  go();
   onlineEl.classList.remove('show');onlineEl.setAttribute('aria-hidden','true');
  });
  netSocket.on('player-input',data=>{if(netGameActive&&data.playerIndex!==netPlayerIndex)netRemoteState=data.input});
@@ -767,6 +781,19 @@ function fight(){
 // ---- CPU levels ----
 const DF=[{iv:[32,52],atk:.3,gap:46,blk:.1,sp:.15,fs:.5,mv:.75},{iv:[18,32],atk:.45,gap:40,blk:.3,sp:.3,fs:.9,mv:1},{iv:[10,20],atk:.6,gap:36,blk:.5,sp:.45,fs:1,mv:1}];
 function input(f,o){
+ // Online matches have exactly two human-controlled slots. Each browser
+ // drives its own player and consumes the other player's relayed controls.
+ if(netGameActive){
+  const m=MAP[f.pl];
+  if(f.pl===netPlayerIndex){
+   const v={l:!!keys[m.l],r:!!keys[m.r],u:!!prs[m.u],p:!!prs[m.p],k:!!prs[m.k],b:!!keys[m.b]};
+   netSendInput(v);
+   return v;
+  }
+  const v={...netRemoteState};
+  netRemoteState.p=netRemoteState.k=netRemoteState.u=0;
+  return v;
+ }
  if(f.cpu){const L=DF[diff],d=o.x-f.x,ad=Math.abs(d);
   if(--f.ai<=0){f.ai=L.iv[0]+Math.random()*(L.iv[1]-L.iv[0])|0;const r=Math.random(),k={l:0,r:0,u:0,p:0,k:0,b:0,s:0,f:0,uh:0,dh:0},tw=d>0?'r':'l',aw=d>0?'l':'r';
    if(f.sm>=100&&Math.random()<L.fs)k.f=1;
