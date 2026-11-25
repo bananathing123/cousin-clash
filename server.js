@@ -57,7 +57,7 @@ function publicLobby(lobby) {
 
 function lobbyList() {
   return [...lobbies.values()]
-    .filter(l => l.status === 'waiting' && l.players.length < 2)
+    .filter(l => l.status === 'waiting' && l.players.length < 4)
     .map(l => ({
       code: l.code,
       hostName: l.players[0]?.name || 'Player',
@@ -141,10 +141,11 @@ io.on('connection', socket => {
     if (!lobby || lobby.status !== 'waiting') {
       return socket.emit('lobby-error', 'That lobby is unavailable or match in progress.');
     }
-    if (lobby.players.length >= 2) {
-      return socket.emit('lobby-error', 'That lobby is already full.');
+    if (lobby.players.length >= 4) {
+      return socket.emit('lobby-error', 'That lobby is already full (max 4 players).');
     }
     removeSocketFromLobby(socket);
+    const playerIndex = lobby.players.length;
     lobby.players.push({
       id: socket.id,
       name: safeName(payload?.name),
@@ -152,16 +153,17 @@ io.on('connection', socket => {
       ready: true
     });
     socketLobby.set(socket.id, code);
-    socket.emit('lobby-joined', { playerIndex: 1, lobby: publicLobby(lobby) });
+    socket.emit('lobby-joined', { playerIndex, lobby: publicLobby(lobby) });
     emitLobby(lobby);
   });
 
   socket.on('quick-match', payload => {
-    // Find an open waiting lobby
-    const openLobbies = [...lobbies.values()].filter(l => l.status === 'waiting' && l.players.length === 1);
+    // Find an open waiting lobby with room (< 4 players)
+    const openLobbies = [...lobbies.values()].filter(l => l.status === 'waiting' && l.players.length < 4);
     if (openLobbies.length > 0) {
       const target = openLobbies[0];
       removeSocketFromLobby(socket);
+      const playerIndex = target.players.length;
       target.players.push({
         id: socket.id,
         name: safeName(payload?.name),
@@ -169,7 +171,7 @@ io.on('connection', socket => {
         ready: true
       });
       socketLobby.set(socket.id, target.code);
-      socket.emit('lobby-joined', { playerIndex: 1, lobby: publicLobby(target) });
+      socket.emit('lobby-joined', { playerIndex, lobby: publicLobby(target) });
       emitLobby(target);
     } else {
       // Create a new lobby
@@ -232,8 +234,8 @@ io.on('connection', socket => {
     if (!lobby || lobby.players[0]?.id !== socket.id) {
       return socket.emit('lobby-error', 'Only the lobby host can start.');
     }
-    if (lobby.players.length !== 2) {
-      return socket.emit('lobby-error', 'You need two players to start.');
+    if (lobby.players.length < 2) {
+      return socket.emit('lobby-error', 'You need at least two players to start.');
     }
     if (lobby.status === 'playing') return;
 
@@ -255,7 +257,7 @@ io.on('connection', socket => {
     emitLobby(lobby);
   });
 
-  // Real-time input relay with minimal latency
+  // Real-time input relay with minimal latency to all opponents in lobby
   socket.on('player-input', payload => {
     const code = socketLobby.get(socket.id);
     const lobby = code && lobbies.get(code);
@@ -263,27 +265,27 @@ io.on('connection', socket => {
     const playerIndex = lobby.players.findIndex(p => p.id === socket.id);
     if (playerIndex < 0) return;
 
-    const opponent = lobby.players[1 - playerIndex];
-    if (opponent) {
-      // Direct relay of full action inputs to opponent
-      io.to(opponent.id).emit('player-input', {
-        playerIndex,
-        input: payload?.input || {},
-        seq: payload?.seq || 0
-      });
-    }
+    const msg = {
+      playerIndex,
+      input: payload?.input || {},
+      seq: payload?.seq || 0
+    };
+    lobby.players.forEach((p, idx) => {
+      if (idx !== playerIndex) {
+        io.to(p.id).emit('player-input', msg);
+      }
+    });
   });
 
-  // State sync from host to guest to prevent simulation drift
+  // State sync from host to all guests to prevent simulation drift
   socket.on('state-sync', payload => {
     const code = socketLobby.get(socket.id);
     const lobby = code && lobbies.get(code);
     if (!lobby || lobby.status !== 'playing') return;
     if (lobby.players[0]?.id !== socket.id) return; // Only host sends state sync
 
-    const guest = lobby.players[1];
-    if (guest) {
-      io.to(guest.id).emit('state-sync', payload);
+    for (let i = 1; i < lobby.players.length; i++) {
+      io.to(lobby.players[i].id).emit('state-sync', payload);
     }
   });
 
