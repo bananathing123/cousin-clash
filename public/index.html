@@ -1357,7 +1357,7 @@ function select(){
   else{let done=0;
    for(let i=0;i<4&&!done;i++)if(inb(mc,PX(i)+PW-29,PY+2,27,13)){cycleSlot(slots[i]);done=1}
    for(let i=0;i<4&&!done;i++)if(!TS&&slots[i].st!='OFF'&&inb(mc,PX(i)+1,PY+14,32,15)){cycleTeam(slots[i]);done=1}
-   for(let i=0;i<4&&!done;i++)if(inb(mc,GPX(i),PY,PW,PH)){if(slots[i].st!='OFF'&&slots[i].lock){slots[i].lock=false;sfx.sel()}done=1}
+   for(let i=0;i<4&&!done;i++)if(inb(mc,PX(i),PY,PW,PH)){if(slots[i].st!='OFF'&&slots[i].lock){slots[i].lock=false;sfx.sel()}done=1}
    for(let c=0;c<=NC&&!done;c++)if(inb(mc,CX(c),CYf(c),CW,CELH)){const t=slots.find(o=>o.st!='OFF'&&!o.lock);if(t){t.cur=c;lockSlot(t)}done=1}}}}
 function foe(f){let b=null,bd=1e9;for(const q of F){if(q===f||q.hp<=0||ally(f,q))continue;const d=Math.abs(q.x-f.x);if(d<bd){bd=d;b=q}}return b||{x:f.x,y:f.y,at:0,hp:0,stun:1,blk:0,face:f.face}}
 function hud(){const n=F.length,pw=n<3?118:n==3?96:74,gp=n<3?14:n==3?8:6,tot=n*pw+(n-1)*gp,x0=Math.round((W-tot)/2);
