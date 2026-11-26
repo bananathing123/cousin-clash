@@ -73,9 +73,6 @@ if(window.visualViewport)visualViewport.addEventListener('resize',fit);
 // block pinch / double-tap zoom / swipe scrolling
 ['gesturestart','gesturechange','gestureend'].forEach(t=>document.addEventListener(t,e=>e.preventDefault()));
 document.addEventListener('dblclick',e=>e.preventDefault());
-document.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
-document.addEventListener('touchstart',e=>{if(e.touches.length>1)e.preventDefault()},{passive:false});
-let _lte=0;document.addEventListener('touchend',e=>{const n=Date.now();if(n-_lte<350)e.preventDefault();_lte=n},{passive:false});
 // install as app (manifest built in-page so no extra file is needed)
 try{const m={name:'Cousin Clash',short_name:'Cousin Clash',start_url:location.pathname,display:'fullscreen',display_override:['fullscreen','standalone'],orientation:'landscape',background_color:'#120a26',theme_color:'#120a26'};
  const l=document.createElement('link');l.rel='manifest';l.href=URL.createObjectURL(new Blob([JSON.stringify(m)],{type:'application/manifest+json'}));document.head.appendChild(l)}catch(e){}
